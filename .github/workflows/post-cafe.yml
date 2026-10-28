@@ -1,0 +1,72 @@
+name: post-cafe
+
+on:
+  workflow_dispatch:
+  # 정기 실행이 필요하면 주석을 풀어 사용 (UTC 기준, 아래는 매일 KST 15:00)
+  # schedule:
+  #   - cron: "0 6 * * *"
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: action
+    env:
+      TZ: Asia/Seoul  # 스크립트의 '오늘' 날짜를 한국 기준으로
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq fonts-nanum
+          pip install -r requirements.txt
+
+      - name: Draw charts
+        env:
+          GARAK_API_ID: ${{ secrets.GARAK_API_ID }}
+          GARAK_API_PASSWD: ${{ secrets.GARAK_API_PASSWD }}
+        run: python auction_chart.py
+
+      - name: Post articles
+        id: post
+        env:
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          NAVER_REFRESH_TOKEN: ${{ secrets.NAVER_REFRESH_TOKEN }}
+          GARAK_API_ID: ${{ secrets.GARAK_API_ID }}
+          GARAK_API_PASSWD: ${{ secrets.GARAK_API_PASSWD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set +e
+          python post_auction_articles.py
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          exit $code
+
+      - name: Upload charts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: charts
+          path: action/output/*.png
+          if-no-files-found: ignore
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EXIT_CODE: ${{ steps.post.outputs.code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$EXIT_CODE" = "2" ]; then
+            msg="네이버 토큰이 만료됐거나 재발급에 실패했습니다. 로컬에서 token_tools/naver_login.py 로 다시 로그인해 NAVER_REFRESH_TOKEN 시크릿을 갱신하세요."
+          else
+            msg="네이버 카페 글쓰기 워크플로가 실패했습니다."
+          fi
+          payload=$(jq -n --arg c "$msg"$'\n'"$RUN_URL" '{content: $c}')
+          curl -sS -H "Content-Type: application/json" -d "$payload" "$WEBHOOK"
