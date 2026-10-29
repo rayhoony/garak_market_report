@@ -2,7 +2,8 @@
 
 사용법: python auction_chart.py [YYYYMMDD] [법인코드] [품목:무게 ...]
   예) python auction_chart.py 20261021 11000101 사과:10kg 감귤:5kg
-  날짜 생략 시 오늘, 항목 생략 시 아래 ITEMS 목록을 순서대로 조회한다.
+  날짜 생략 시 오늘, 항목 생략 시 환경변수 ITEM_GROUP(first/second/all, 기본 all)에 해당하는
+  ITEMS_FIRST / ITEMS_SECOND 목록을 순서대로 조회한다.
 """
 import json
 import os
@@ -26,10 +27,15 @@ PAGE_SIZE = 1000
 MAX_LOOKBACK_DAYS = 14  # 이전 데이터를 찾을 때 거슬러 올라갈 최대 일수
 
 # 조회할 (품목, 무게) 목록. 순서대로 조회해 항목마다 PNG를 저장한다.
-ITEMS = [
-    ("사과", "10kg"),
+# 월~토 오전 6시에 조회·게시할 항목
+ITEMS_FIRST = [
     ("감귤", "5kg"),
 ]
+# 월~토 오전 10시에 조회·게시할 항목
+ITEMS_SECOND = [
+    ("사과", "10kg"),
+]
+ITEM_GROUPS = {"first": ITEMS_FIRST, "second": ITEMS_SECOND}
 
 # Windows는 맑은 고딕, GitHub Actions(Ubuntu)는 fonts-nanum 의 나눔고딕을 쓴다.
 plt.rcParams["font.family"] = ["Malgun Gothic", "NanumGothic"]
@@ -110,10 +116,20 @@ def draw(weight, price_qty, date, prev_qty, prev_date, pummok, outdir):
     return path
 
 
+def default_items():
+    """환경변수 ITEM_GROUP(first/second)에 해당하는 항목 목록. 비었거나 all이면 전체를 돌려준다."""
+    group = os.environ.get("ITEM_GROUP", "").strip().lower()
+    if group in ("", "all"):
+        return [item for items in ITEM_GROUPS.values() for item in items]
+    if group not in ITEM_GROUPS:
+        sys.exit(f"ITEM_GROUP 값 오류: '{group}' (first, second, all 중 하나)")
+    return ITEM_GROUPS[group]
+
+
 def parse_items(args):
-    """'사과:10kg' 형태의 인자를 (품목, 무게) 목록으로 바꾼다. 인자가 없으면 ITEMS를 쓴다."""
+    """'사과:10kg' 형태의 인자를 (품목, 무게) 목록으로 바꾼다. 인자가 없으면 default_items()를 쓴다."""
     if not args:
-        return ITEMS
+        return default_items()
     items = []
     for arg in args:
         pummok, sep, weight = arg.partition(":")

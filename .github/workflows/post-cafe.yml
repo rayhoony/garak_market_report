@@ -2,9 +2,16 @@ name: post-cafe
 
 on:
   workflow_dispatch:
-  # 정기 실행이 필요하면 주석을 풀어 사용 (UTC 기준, 아래는 매일 KST 15:00)
-  # schedule:
-  #   - cron: "0 6 * * *"
+    inputs:
+      group:
+        description: "게시할 항목 그룹 (ITEMS_FIRST / ITEMS_SECOND / 전체)"
+        type: choice
+        options: [all, first, second]
+        default: all
+  # cron은 UTC 기준. KST = UTC+9
+  schedule:
+    - cron: "0 21 * * 0-5"  # ITEMS_FIRST: 월~토 KST 06:00 (UTC 전날 21:00 → 일~금)
+    - cron: "0 1 * * 1-6"   # ITEMS_SECOND: 월~토 KST 10:00
 
 jobs:
   post:
@@ -14,6 +21,8 @@ jobs:
         working-directory: action
     env:
       TZ: Asia/Seoul  # 스크립트의 '오늘' 날짜를 한국 기준으로
+      # 스케줄은 실행된 cron으로 그룹을 정하고, 수동 실행은 입력값을 쓴다
+      ITEM_GROUP: ${{ github.event_name == 'schedule' && (github.event.schedule == '0 21 * * 0-5' && 'first' || 'second') || inputs.group }}
     steps:
       - uses: actions/checkout@v4
 
