@@ -1,6 +1,6 @@
 """auction_chart.py가 만든 그래프를 품목마다 게시글 1개씩 카페에 올린다.
 
-사용법: python post_auction_articles.py [YYYYMMDD] [품목:무게 ...]  (항목 생략 시 ITEMS 전체)
+사용법: python post_auction_articles.py [YYYYMMDD] [품목:무게 ...]  (항목 생략 시 환경변수 ITEM_GROUP 의 ITEMS_FIRST/ITEMS_SECOND, 기본 전체)
 제목: "[YYYY-MM-DD] 사과 10kg 경매 결과"
 """
 import sys
@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from auction_analysis import analyze, to_html
-from auction_chart import ITEMS, fetch, fetch_previous, group_by_weight
+from auction_chart import default_items, fetch, fetch_previous, group_by_weight
 from naver_auth import TokenError, get_access_token
 from post_cafe_article import CLUB_ID, MENU_ID, post_article
 
@@ -26,7 +26,7 @@ def main():
         print(f"[TOKEN_ERROR] {exc}")
         sys.exit(2)
 
-    items = [tuple(a.split(":", 1)) for a in sys.argv[2:]] or ITEMS
+    items = [tuple(a.split(":", 1)) for a in sys.argv[2:]] or default_items()
     bubin = "11000101"
     cache = {}  # pummok -> (오늘 groups, 이전 날짜, 이전 groups)
     failed = False
