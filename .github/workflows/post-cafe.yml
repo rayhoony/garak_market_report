@@ -72,13 +72,14 @@ jobs:
           JOB_STATUS: ${{ job.status }}
           EXIT_CODE: ${{ steps.post.outputs.code }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MENTION_USER_ID: "1458303601276485693"  # 항상 멘션할 디스코드 사용자 ID
         run: |
           case "$JOB_STATUS" in
             success)   title="✅ 네이버 카페 글쓰기 완료" ;;
             cancelled) title="⚠️ 네이버 카페 글쓰기 워크플로가 취소됐습니다" ;;
             *)         title="❌ 네이버 카페 글쓰기 실패" ;;
           esac
-          msg="$title (그룹: ${ITEM_GROUP:-all}, $(date '+%Y-%m-%d %H:%M') KST)"
+          msg="<@$MENTION_USER_ID> $title (그룹: ${ITEM_GROUP:-all}, $(date '+%Y-%m-%d %H:%M') KST)"
           if [ -s output/summary.txt ]; then
             msg="$msg"$'\n'"$(cat output/summary.txt)"
           elif [ "$JOB_STATUS" != "success" ]; then
@@ -89,5 +90,7 @@ jobs:
           fi
           msg="$msg"$'\n'"$RUN_URL"
           # 디스코드 메시지 길이 제한(2000자)
-          payload=$(jq -n --arg c "${msg:0:1900}" '{content: $c}')
+          # allowed_mentions: 본문에 섞인 @everyone 등은 무시하고 지정한 사용자만 알림
+          payload=$(jq -n --arg c "${msg:0:1900}" --arg u "$MENTION_USER_ID" \
+            '{content: $c, allowed_mentions: {parse: [], users: [$u]}}')
           curl -sS -H "Content-Type: application/json" -d "$payload" "$WEBHOOK"
