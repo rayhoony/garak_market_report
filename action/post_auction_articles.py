@@ -43,16 +43,19 @@ def main():
     for i, (pummok, weight) in enumerate(items):
         if i:
             time.sleep(POST_INTERVAL)  # 연속 등록 제한 회피
-        image = OUTDIR / f"{date}_{pummok}_{weight}.png"
-        if not image.exists():
-            record(f"⚠️ {pummok} {weight}: 그래프 파일 없음, 건너뜀")
-            continue
-        subject = f"[{pretty}] {pummok} {weight} 가락 시장 경매 결과"
         if pummok not in cache:
             groups = group_by_weight(fetch(date, pummok, bubin), pummok)
             prev_date, prev_groups = fetch_previous(date, pummok, bubin) if groups else (None, {})
             cache[pummok] = (groups, prev_date, prev_groups)
         groups, prev_date, prev_groups = cache[pummok]
+        image = OUTDIR / f"{date}_{pummok}_{weight}.png"
+        if not image.exists():
+            if weight not in groups:  # auction_chart.py 가 데이터가 없어 그래프를 만들지 않은 경우
+                record(f"⚠️ {pummok} {weight}: {pretty} 경매 데이터 없음, 건너뜀")
+            else:
+                record(f"⚠️ {pummok} {weight}: 그래프 파일 없음, 건너뜀")
+            continue
+        subject = f"[{pretty}] {pummok} {weight} 가락 시장 경매 결과"
         content = f"{subject}<br><br>"
         try:
             content += to_html(analyze(pummok, weight, date, groups.get(weight, {}),
