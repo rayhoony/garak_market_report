@@ -83,17 +83,32 @@ jobs:
           path: action/output/*.png
           if-no-files-found: ignore
 
-      - name: Notify Discord on failure
-        if: failure()
+      - name: Notify Discord
+        if: always()  # 성공·실패·취소 모두 알림
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          JOB_STATUS: ${{ job.status }}
           EXIT_CODE: ${{ steps.post.outputs.code }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MENTION_USER_ID: "1458303601276485693"  # 항상 멘션할 디스코드 사용자 ID
         run: |
-          if [ "$EXIT_CODE" = "2" ]; then
-            msg="네이버 토큰이 만료됐거나 재발급에 실패했습니다. 로컬에서 token_tools/naver_login.py 로 다시 로그인해 NAVER_REFRESH_TOKEN 시크릿을 갱신하세요."
-          else
-            msg="네이버 카페 글쓰기 워크플로가 실패했습니다."
+          case "$JOB_STATUS" in
+            success)   title="✅ 네이버 카페 글쓰기 완료" ;;
+            cancelled) title="⚠️ 네이버 카페 글쓰기 워크플로가 취소됐습니다" ;;
+            *)         title="❌ 네이버 카페 글쓰기 실패" ;;
+          esac
+          msg="<@$MENTION_USER_ID> $title (그룹: ${ITEM_GROUP:-all}, $(date '+%Y-%m-%d %H:%M') KST)"
+          if [ -s output/summary.txt ]; then
+            msg="$msg"$'\n'"$(cat output/summary.txt)"
+          elif [ "$JOB_STATUS" != "success" ]; then
+            msg="$msg"$'\n'"게시 단계 이전(의존성 설치·그래프 생성 등)에 실패했거나 결과 요약이 없습니다."
           fi
-          payload=$(jq -n --arg c "$msg"$'\n'"$RUN_URL" '{content: $c}')
+          if [ "$EXIT_CODE" = "2" ]; then
+            msg="$msg"$'\n'"로컬에서 token_tools/naver_login.py 로 다시 로그인해 NAVER_REFRESH_TOKEN 시크릿을 갱신하세요."
+          fi
+          msg="$msg"$'\n'"$RUN_URL"
+          # 디스코드 메시지 길이 제한(2000자)
+          # allowed_mentions: 본문에 섞인 @everyone 등은 무시하고 지정한 사용자만 알림
+          payload=$(jq -n --arg c "${msg:0:1900}" --arg u "$MENTION_USER_ID" \
+            '{content: $c, allowed_mentions: {parse: [], users: [$u]}}')
           curl -sS -H "Content-Type: application/json" -d "$payload" "$WEBHOOK"
