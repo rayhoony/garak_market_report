@@ -8,16 +8,19 @@
 import json
 import os
 import sys
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
+from urllib.error import URLError
 from urllib.request import urlopen
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 
 URL = "https://www.garak.co.kr/homepage/publicdata/dataJsonOpen.do"
 # 가락시장 공공데이터 인증정보 (GitHub Secrets → 환경변수)
@@ -25,6 +28,7 @@ API_ID = os.environ.get("GARAK_API_ID", "")
 API_PASSWD = os.environ.get("GARAK_API_PASSWD", "")
 PAGE_SIZE = 1000
 MAX_LOOKBACK_DAYS = 14  # 이전 데이터를 찾을 때 거슬러 올라갈 최대 일수
+RETRIES = 4  # 연결 타임아웃 등 네트워크 오류 시 재시도 횟수 (해외 러너에서 간헐적으로 발생)
 
 # 조회할 (품목, 무게) 목록. 순서대로 조회해 항목마다 PNG를 저장한다.
 # 월~토 오전 6시에 조회·게시할 항목
@@ -38,8 +42,24 @@ ITEMS_SECOND = [
 ITEM_GROUPS = {"first": ITEMS_FIRST, "second": ITEMS_SECOND}
 
 # Windows는 맑은 고딕, GitHub Actions(Ubuntu)는 fonts-nanum 의 나눔고딕을 쓴다.
-plt.rcParams["font.family"] = ["Malgun Gothic", "NanumGothic"]
+# 설치되지 않은 글꼴을 지정하면 findfont 경고가 대량으로 찍히므로 설치된 것만 고른다.
+_installed = {f.name for f in font_manager.fontManager.ttflist}
+plt.rcParams["font.family"] = [f for f in ("Malgun Gothic", "NanumGothic") if f in _installed] or ["sans-serif"]
 plt.rcParams["axes.unicode_minus"] = False
+
+
+def get_text(url):
+    """URL을 GET해 본문을 돌려준다. 네트워크 오류면 간격을 늘려 가며 재시도한다."""
+    for attempt in range(1, RETRIES + 1):
+        try:
+            with urlopen(url, timeout=30) as res:
+                return res.read().decode("utf-8")
+        except (URLError, TimeoutError, ConnectionError) as exc:
+            if attempt == RETRIES:
+                raise
+            wait = 5 * 2 ** (attempt - 1)  # 5, 10, 20초
+            print(f"요청 실패({exc}), {wait}초 후 재시도 ({attempt}/{RETRIES - 1})", flush=True)
+            time.sleep(wait)
 
 
 def fetch(date, pummok, bubin):
@@ -53,8 +73,7 @@ def fetch(date, pummok, bubin):
             "pagesize": PAGE_SIZE, "pageidx": page, "portal.templet": "false",
             "s_date": date, "s_bubin": bubin, "s_pummok": pummok, "s_sangi": "",
         })
-        with urlopen(f"{URL}?{query}", timeout=30) as res:
-            text = res.read().decode("utf-8")
+        text = get_text(f"{URL}?{query}")
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
