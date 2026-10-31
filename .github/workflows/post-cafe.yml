@@ -35,24 +35,6 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq fonts-nanum
           pip install -r requirements.txt
 
-      - name: Diagnose network to garak.co.kr
-        continue-on-error: true   # 진단이 실패해도 다음 스텝은 계속 진행
-        run: |
-          echo "== 러너 공인 IP / 위치 =="
-          curl -sS --max-time 10 https://ipinfo.io/json || true
-
-          echo "== DNS 조회 =="
-          getent hosts www.garak.co.kr || echo "DNS 실패"
-
-          echo "== TCP 443 연결 테스트 =="
-          timeout 15 bash -c '</dev/tcp/www.garak.co.kr/443' \
-            && echo "TCP 연결 성공" || echo "TCP 연결 실패/타임아웃"
-
-          echo "== HTTPS 요청 =="
-          curl -v --max-time 20 -o /dev/null \
-            -w "HTTP %{http_code}, connect %{time_connect}s, total %{time_total}s\n" \
-            https://www.garak.co.kr/ || echo "curl 실패 (exit $?)"
-
       - name: Draw charts
         env:
           GARAK_API_ID: ${{ secrets.GARAK_API_ID }}
