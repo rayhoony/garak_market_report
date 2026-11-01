@@ -1,8 +1,8 @@
 """가락시장 경매결과를 조회해 무게(UUN)별로 가격대(PPRICE)-물량(QTY) 그래프를 PNG로 저장한다.
 
-사용법: python auction_chart.py [YYYYMMDD] [법인코드] [품목:무게 ...]
+사용법: python auction_chart.py [YYYYMMDD] [법인코드|all] [품목:무게 ...]
   예) python auction_chart.py 20261021 11000101 사과:10kg 감귤:5kg
-  날짜 생략 시 오늘, 항목 생략 시 환경변수 ITEM_GROUP(first/second/all, 기본 all)에 해당하는
+  날짜 생략 시 오늘, 법인코드 생략 또는 all 이면 BUBINS 의 모든 청과, 항목 생략 시 환경변수 ITEM_GROUP(first/second/all, 기본 all)에 해당하는
   ITEMS_FIRST / ITEMS_SECOND 목록을 순서대로 조회한다.
 """
 import json
@@ -40,6 +40,13 @@ ITEMS_SECOND = [
     ("사과", "10kg"),
 ]
 ITEM_GROUPS = {"first": ITEMS_FIRST, "second": ITEMS_SECOND}
+
+# 조회할 청과(법인) 목록 (법인코드, 이름). 품목마다 이 순서대로 조회·게시한다.
+BUBINS = [
+    ("11000103", "중앙청과"),
+    ("11000101", "서울청과"),
+]
+BUBIN_NAMES = dict(BUBINS)
 
 # Windows는 맑은 고딕, GitHub Actions(Ubuntu)는 fonts-nanum 의 나눔고딕을 쓴다.
 # 설치되지 않은 글꼴을 지정하면 findfont 경고가 대량으로 찍히므로 설치된 것만 고른다.
@@ -110,7 +117,11 @@ def fetch_previous(date, pummok, bubin):
     return None, {}
 
 
-def draw(weight, price_qty, date, prev_qty, prev_date, pummok, outdir):
+def chart_path(outdir, date, bubin_name, pummok, weight):
+    return outdir / f"{date}_{bubin_name}_{pummok}_{weight}.png"
+
+
+def draw(weight, price_qty, date, prev_qty, prev_date, pummok, bubin_name, outdir):
     """위: 오늘(진한 색), 아래: 이전 영업일(옅은 색). 가격 축과 물량 축을 공유해 비교하기 쉽게 한다."""
     prices = sorted(set(price_qty) | set(prev_qty))
     labels = [f"{p:,}" for p in prices]
@@ -127,9 +138,9 @@ def draw(weight, price_qty, date, prev_qty, prev_date, pummok, outdir):
     for ax in axes[:, 0]:
         ax.tick_params(axis="x", rotation=60, labelbottom=True)
         ax.set_xlabel("가격 (원)")
-    fig.suptitle(f"{pummok} {weight} 가격대별 물량")
+    fig.suptitle(f"{bubin_name} {pummok} {weight} 가격대별 물량")
     fig.tight_layout()
-    path = outdir / f"{date}_{pummok}_{weight}.png"
+    path = chart_path(outdir, date, bubin_name, pummok, weight)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     return path
@@ -160,29 +171,31 @@ def parse_items(args):
 
 def main():
     date = sys.argv[1] if len(sys.argv) > 1 else datetime.now().strftime("%Y%m%d")
-    bubin = sys.argv[2] if len(sys.argv) > 2 else "11000101"
+    arg = sys.argv[2] if len(sys.argv) > 2 else "all"
+    bubins = BUBINS if arg == "all" else [(arg, BUBIN_NAMES.get(arg, arg))]
     items = parse_items(sys.argv[3:])
     outdir = Path(__file__).parent / "output"
     outdir.mkdir(exist_ok=True)
 
-    cache = {}  # 품목별 조회 결과 재사용: pummok -> (오늘 groups, 이전 날짜, 이전 groups)
+    cache = {}  # 청과·품목별 조회 결과 재사용: (bubin, pummok) -> (오늘 groups, 이전 날짜, 이전 groups)
     for pummok, weight in items:
-        if pummok not in cache:
-            groups = group_by_weight(fetch(date, pummok, bubin), pummok)
-            prev_date, prev_groups = fetch_previous(date, pummok, bubin) if groups else (None, {})
-            cache[pummok] = (groups, prev_date, prev_groups)
-        groups, prev_date, prev_groups = cache[pummok]
+        for bubin, name in bubins:
+            if (bubin, pummok) not in cache:
+                groups = group_by_weight(fetch(date, pummok, bubin), pummok)
+                prev_date, prev_groups = fetch_previous(date, pummok, bubin) if groups else (None, {})
+                cache[bubin, pummok] = (groups, prev_date, prev_groups)
+            groups, prev_date, prev_groups = cache[bubin, pummok]
 
-        if weight not in groups and weight not in prev_groups:
-            print(f"[건너뜀] {date} {pummok} {weight} 경매 데이터가 없습니다.")
-            continue
-        if prev_date:
-            print(f"[{pummok} {weight}] 비교 대상: {prev_date}")
-        else:
-            print(f"[{pummok} {weight}] 최근 {MAX_LOOKBACK_DAYS}일 내 비교할 이전 데이터가 없습니다.")
-        path = draw(weight, groups.get(weight, {}), date, prev_groups.get(weight, {}),
-                    prev_date, pummok, outdir)
-        print("저장:", path)
+            if weight not in groups and weight not in prev_groups:
+                print(f"[건너뜀] {date} {name} {pummok} {weight} 경매 데이터가 없습니다.")
+                continue
+            if prev_date:
+                print(f"[{name} {pummok} {weight}] 비교 대상: {prev_date}")
+            else:
+                print(f"[{name} {pummok} {weight}] 최근 {MAX_LOOKBACK_DAYS}일 내 비교할 이전 데이터가 없습니다.")
+            path = draw(weight, groups.get(weight, {}), date, prev_groups.get(weight, {}),
+                        prev_date, pummok, name, outdir)
+            print("저장:", path)
 
 
 if __name__ == "__main__":

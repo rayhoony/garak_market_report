@@ -1,7 +1,8 @@
-"""auction_chart.py가 만든 그래프를 품목마다 게시글 1개씩 카페에 올린다.
+"""auction_chart.py가 만든 그래프를 품목·청과마다 게시글 1개씩 카페에 올린다.
 
 사용법: python post_auction_articles.py [YYYYMMDD] [품목:무게 ...]  (항목 생략 시 환경변수 ITEM_GROUP 의 ITEMS_FIRST/ITEMS_SECOND, 기본 전체)
-제목: "[YYYY-MM-DD] 사과 10kg 경매 결과"
+품목마다 BUBINS 의 청과 순서대로 하나씩 올린다.
+제목: "[YYYY-MM-DD] 사과 10kg 가락시장 중앙청과 경매 결과"
 """
 import sys
 import time
@@ -9,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from auction_analysis import analyze, to_html
-from auction_chart import default_items, fetch, fetch_previous, group_by_weight
+from auction_chart import BUBINS, chart_path, default_items, fetch, fetch_previous, group_by_weight
 from naver_auth import TokenError, get_access_token
 from post_cafe_article import CLUB_ID, MENU_ID, post_article
 
@@ -37,39 +38,40 @@ def main():
         sys.exit(2)
 
     items = [tuple(a.split(":", 1)) for a in sys.argv[2:]] or default_items()
-    bubin = "11000101"
-    cache = {}  # pummok -> (오늘 groups, 이전 날짜, 이전 groups)
+    cache = {}  # (bubin, pummok) -> (오늘 groups, 이전 날짜, 이전 groups)
     failed = False
-    for i, (pummok, weight) in enumerate(items):
+    targets = [(pummok, weight, bubin, name) for pummok, weight in items for bubin, name in BUBINS]
+    for i, (pummok, weight, bubin, name) in enumerate(targets):
         if i:
             time.sleep(POST_INTERVAL)  # 연속 등록 제한 회피
-        if pummok not in cache:
+        label = f"{name} {pummok} {weight}"
+        if (bubin, pummok) not in cache:
             groups = group_by_weight(fetch(date, pummok, bubin), pummok)
             prev_date, prev_groups = fetch_previous(date, pummok, bubin) if groups else (None, {})
-            cache[pummok] = (groups, prev_date, prev_groups)
-        groups, prev_date, prev_groups = cache[pummok]
-        image = OUTDIR / f"{date}_{pummok}_{weight}.png"
+            cache[bubin, pummok] = (groups, prev_date, prev_groups)
+        groups, prev_date, prev_groups = cache[bubin, pummok]
+        image = chart_path(OUTDIR, date, name, pummok, weight)
         if not image.exists():
             if weight not in groups:  # auction_chart.py 가 데이터가 없어 그래프를 만들지 않은 경우
-                record(f"⚠️ {pummok} {weight}: {pretty} 경매 데이터 없음, 건너뜀")
+                record(f"⚠️ {label}: {pretty} 경매 데이터 없음, 건너뜀")
             else:
-                record(f"⚠️ {pummok} {weight}: 그래프 파일 없음, 건너뜀")
+                record(f"⚠️ {label}: 그래프 파일 없음, 건너뜀")
             continue
-        subject = f"[{pretty}] {pummok} {weight} 가락 시장 경매 결과"
+        subject = f"[{pretty}] {pummok} {weight} 가락시장 {name} 경매 결과"
         content = f"{subject}<br><br>"
         try:
             content += to_html(analyze(pummok, weight, date, groups.get(weight, {}),
-                                       prev_date, prev_groups.get(weight, {})))
+                                       prev_date, prev_groups.get(weight, {}), name))
         except Exception as exc:  # 분석 없는 글이 올라가지 않도록 건너뛴다
-            record(f"❌ {pummok} {weight}: 분석 실패, 게시 건너뜀 ({exc})")
+            record(f"❌ {label}: 분석 실패, 게시 건너뜀 ({exc})")
             failed = True
             continue
         res = post_article(token, CLUB_ID, MENU_ID, subject, content, [str(image)])
         print(subject, "->", res.status_code, res.text)
         if res.status_code == 200:
-            record(f"✅ {pummok} {weight}: 게시 성공")
+            record(f"✅ {label}: 게시 성공")
         else:
-            record(f"❌ {pummok} {weight}: 게시 실패 (HTTP {res.status_code}) {res.text[:200]}")
+            record(f"❌ {label}: 게시 실패 (HTTP {res.status_code}) {res.text[:200]}")
         failed |= res.status_code != 200
     sys.exit(1 if failed else 0)
 

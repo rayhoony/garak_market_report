@@ -43,11 +43,12 @@ def _stats(price_qty):
     return f"총 물량 {total:,}, 물량 가중평균가 {avg:,.0f}원, 최저 {min(price_qty):,}원, 최고 {max(price_qty):,}원"
 
 
-def build_prompt(pummok, weight, date, price_qty, prev_date, prev_qty):
+def build_prompt(pummok, weight, date, price_qty, prev_date, prev_qty, bubin_name=""):
     prev = (f"[이전 영업일 {prev_date}] {_stats(prev_qty)}\n(가격: 물량)\n{_table(prev_qty)}"
             if prev_date else "[이전 영업일] 비교할 데이터 없음")
+    market = f"가락시장 {bubin_name}" if bubin_name else "가락시장"
     return (
-        f"가락시장 {pummok} {weight} 경매 결과를 공유할 분석 글을 한국어로 작성해줘.\n"
+        f"{market} {pummok} {weight} 경매 결과를 공유할 분석 글을 한국어로 작성해줘.\n"
         "오늘과 이전 영업일을 비교해 가격 수준(가중평균·가격대 분포)과 물량 변화를 3~5문장으로 요약하고, "
         "마지막에 한 줄 시사점을 덧붙여. 주어진 숫자에 없는 내용은 추측하지 말고, "
         "마크다운 문법 없이 일반 텍스트로만 써줘.\n\n"
@@ -55,7 +56,7 @@ def build_prompt(pummok, weight, date, price_qty, prev_date, prev_qty):
     )
 
 
-def analyze(pummok, weight, date, price_qty, prev_date, prev_qty):
+def analyze(pummok, weight, date, price_qty, prev_date, prev_qty, bubin_name=""):
     """분석 텍스트를 돌려준다. 실패하면 예외를 던진다."""
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
@@ -63,7 +64,7 @@ def analyze(pummok, weight, date, price_qty, prev_date, prev_qty):
     headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
     body = {"model": _latest_haiku(headers), "max_tokens": 128000,
             "thinking": {"type": "disabled"}, "messages": [{"role": "user", "content": build_prompt(
-        pummok, weight, date, price_qty, prev_date, prev_qty)}]}
+        pummok, weight, date, price_qty, prev_date, prev_qty, bubin_name)}]}
     last = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
