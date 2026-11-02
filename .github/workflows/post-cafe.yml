@@ -11,7 +11,7 @@ on:
   # cron은 UTC 기준. KST = UTC+9
   schedule:
     - cron: "56 20 * * 0-5"  # ITEMS_FIRST: 월~토 KST 05:56 (UTC 전날 20:56 → 일~금)
-    - cron: "0 1 * * 1-6"   # ITEMS_SECOND: 월~토 KST 10:00
+    - cron: "54 0 * * 1-6"  # ITEMS_SECOND: 월~토 KST 09:54 (UTC 00:54)
 
 jobs:
   post:
