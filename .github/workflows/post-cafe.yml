@@ -1,6 +1,9 @@
 name: post-cafe
+# 실행 목록에서 그룹을 구분하고, 아래 중복 확인 단계가 이 제목으로 같은 그룹의 실행을 찾는다
+run-name: post-cafe group=${{ github.event_name == 'schedule' && (github.event.schedule == '56 20 * * 0-5' && 'first' || 'second') || inputs.group }} (${{ github.event_name }})
 
 on:
+  # 수동 실행, 그리고 cron-job.org 가 GitHub API(workflow dispatch)로 호출하는 외부 실행
   workflow_dispatch:
     inputs:
       group:
@@ -9,20 +12,50 @@ on:
         options: [all, first, second]
         default: all
   # cron은 UTC 기준. KST = UTC+9
+  # GitHub 스케줄은 몇 시간씩 늦는 경우가 많아 cron-job.org 실행의 예비로 둔다.
+  # cron 문자열을 바꾸면 run-name 과 env.ITEM_GROUP 의 비교 문자열도 같이 바꿀 것.
   schedule:
     - cron: "56 20 * * 0-5"  # ITEMS_FIRST: 월~토 KST 05:56 (UTC 전날 20:56 → 일~금)
     - cron: "54 0 * * 1-6"  # ITEMS_SECOND: 월~토 KST 09:54 (UTC 00:54)
 
+env:
+  # 스케줄은 실행된 cron으로 그룹을 정하고, 수동·외부 실행은 입력값을 쓴다
+  ITEM_GROUP: ${{ github.event_name == 'schedule' && (github.event.schedule == '56 20 * * 0-5' && 'first' || 'second') || inputs.group }}
+
 jobs:
+  # 스케줄 실행만 해당: 오늘(KST) 같은 그룹을 수동·외부 실행(workflow_dispatch)으로 이미 게시했거나
+  # 게시 중이면 건너뛴다. cron-job.org 실행과 늦게 도착한 GitHub 스케줄이 중복 게시하지 않게 한다.
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      skip: ${{ steps.dedupe.outputs.skip }}
+    steps:
+      - id: dedupe
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since=$(date -u -d "$(TZ=Asia/Seoul date +%F) 00:00 +0900" +%Y-%m-%dT%H:%M:%SZ)
+          n=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/post-cafe.yml/runs?event=workflow_dispatch&per_page=100&created=%3E%3D$since" \
+            --jq "[.workflow_runs[] | select((.display_title | contains(\"group=$ITEM_GROUP \") or contains(\"group=all \"))
+                   and (.conclusion == \"success\" or .status != \"completed\"))] | length")
+          echo "오늘($since 이후) 같은 그룹의 수동·외부 실행(성공 또는 진행 중): $n건"
+          if [ "$n" -gt 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "이미 게시했으므로 이번 스케줄 실행은 건너뜁니다."
+          fi
+
   post:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: action
     env:
       TZ: Asia/Seoul  # 스크립트의 '오늘' 날짜를 한국 기준으로
-      # 스케줄은 실행된 cron으로 그룹을 정하고, 수동 실행은 입력값을 쓴다
-      ITEM_GROUP: ${{ github.event_name == 'schedule' && (github.event.schedule == '56 20 * * 0-5' && 'first' || 'second') || inputs.group }}
     steps:
       - uses: actions/checkout@v4
 
