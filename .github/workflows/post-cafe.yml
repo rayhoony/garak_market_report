@@ -8,10 +8,11 @@ on:
         type: choice
         options: [all, first, second]
         default: all
-  # cron은 UTC 기준. KST = UTC+9
-  schedule:
-    - cron: "56 20 * * 0-5"  # ITEMS_FIRST: 월~토 KST 05:56 (UTC 전날 20:56 → 일~금)
-    - cron: "54 0 * * 1-6"  # ITEMS_SECOND: 월~토 KST 09:54 (UTC 00:54)
+  # 정기 실행은 cron-job.org 가 workflow dispatch API로 group(first/second)을 지정해 호출한다.
+  # GitHub 스케줄은 지연이 심해 비활성화. 다시 쓰려면 주석을 풀 것 (cron은 UTC 기준, KST = UTC+9)
+  # schedule:
+  #   - cron: "56 20 * * 0-5"  # ITEMS_FIRST: 월~토 KST 05:56 (UTC 전날 20:56 → 일~금)
+  #   - cron: "54 0 * * 1-6"  # ITEMS_SECOND: 월~토 KST 09:54 (UTC 00:54)
 
 jobs:
   post:
