@@ -29,6 +29,7 @@ API_PASSWD = os.environ.get("GARAK_API_PASSWD", "")
 PAGE_SIZE = 1000
 MAX_LOOKBACK_DAYS = 14  # 이전 데이터를 찾을 때 거슬러 올라갈 최대 일수
 RETRIES = 4  # 연결 타임아웃 등 네트워크 오류 시 재시도 횟수 (해외 러너에서 간헐적으로 발생)
+RETRY_WAIT = 60  # 재시도 간격(초)
 
 # 조회할 (품목, 무게) 목록. 순서대로 조회해 항목마다 PNG를 저장한다.
 # 월~토 오전 6시에 조회·게시할 항목
@@ -57,7 +58,7 @@ plt.rcParams["axes.unicode_minus"] = False
 
 
 def get_text(url):
-    """URL을 GET해 본문을 돌려준다. 네트워크 오류면 간격을 늘려 가며 재시도한다."""
+    """URL을 GET해 본문을 돌려준다. 네트워크 오류면 RETRY_WAIT 초 간격으로 재시도한다."""
     for attempt in range(1, RETRIES + 1):
         try:
             with urlopen(url, timeout=30) as res:
@@ -65,9 +66,8 @@ def get_text(url):
         except (URLError, TimeoutError, ConnectionError) as exc:
             if attempt == RETRIES:
                 raise
-            wait = 5 * 2 ** (attempt - 1)  # 5, 10, 20초
-            print(f"요청 실패({exc}), {wait}초 후 재시도 ({attempt}/{RETRIES - 1})", flush=True)
-            time.sleep(wait)
+            print(f"요청 실패({exc}), {RETRY_WAIT}초 후 재시도 ({attempt}/{RETRIES - 1})", flush=True)
+            time.sleep(RETRY_WAIT)
 
 
 def fetch(date, pummok, bubin):
